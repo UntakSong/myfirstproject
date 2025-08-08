@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Project Data Dashboard (Offline Version)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+        }
+        .chart-container {
+            position: relative;
+            margin: auto;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .file-input-label {
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+        .file-input-label.loaded {
+            background-color: #10b981;
+            color: white;
+        }
+         .file-input-label.unloaded {
+            background-color: #6366f1;
+            color: white;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">📊 Interactive Project Data Dashboard (Offline)</h1>
+            <p class="text-gray-600 mt-2">Upload your full CSV datasets for 2024 and 2025 to generate visualizations.</p>
+        </header>
+
+        <!-- File Upload Section -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div>
+                <label for="csv-upload-2024" id="label-2024" class="file-input-label unloaded">
+                    📤 Upload 2024 Data
+                </label>
+                <input type="file" id="csv-upload-2024" class="hidden" accept=".csv">
+                <span id="filename-2024" class="ml-2 text-sm text-gray-500">No file selected.</span>
+            </div>
+             <div>
+                <label for="csv-upload-2025" id="label-2025" class="file-input-label unloaded">
+                    📤 Upload 2025 Data
+                </label>
+                <input type="file" id="csv-upload-2025" class="hidden" accept=".csv">
+                 <span id="filename-2025" class="ml-2 text-sm text-gray-500">No file selected.</span>
+            </div>
+        </div>
+
+        <!-- Visualization Section -->
+        <div id="dashboard-content" class="hidden">
+            <div class="grid grid-cols-1 gap-8">
+                
+                <!-- Year-over-Year Regional Comparison Chart -->
+                <div class="chart-container">
+                    <h2 class="text-xl font-semibold text-center mb-4 text-gray-700">Year-over-Year Regional Comparison (All Statuses)</h2>
+                    <div class="relative h-[450px]">
+                        <canvas id="comparisonByRegionChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Project Count by Status Chart -->
+                <div class="chart-container">
+                     <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold text-gray-700">Project Count by Status</h2>
+                        <select id="status-region-filter" class="p-1 text-sm border rounded-md bg-white shadow-sm">
+                            <!-- Options will be populated by JS -->
+                        </select>
+                    </div>
+                    <div class="relative h-[450px]">
+                        <canvas id="statusComparisonChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Subplots Section -->
+                <div class="chart-container">
+                    <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold text-gray-700">Detailed View: Project Count by Status and Region</h2>
+                        <select id="region-filter" class="p-1 text-sm border rounded-md bg-white shadow-sm mt-4 sm:mt-0">
+                            <!-- Options will be populated by JS -->
+                        </select>
+                    </div>
+                    <div id="status-subplots-container" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
+                        <!-- Subplots will be generated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+         <div id="initial-message" class="text-center py-16 text-gray-500">
+            <p class="text-xl">Please upload both CSV files to begin analysis.</p>
+        </div>
+    </div>
+
+    <script>
+        // Register the datalabels plugin globally
+        Chart.register(ChartDataLabels);
+
+        let projectData2024 = [];
+        let projectData2025 = [];
+        let charts = {}; // To hold chart instances for destruction
+
+        const fileInput2024 = document.getElementById('csv-upload-2024');
+        const fileInput2025 = document.getElementById('csv-upload-2025');
+        const dashboardContent = document.getElementById('dashboard-content');
+        const initialMessage = document.getElementById('initial-message');
+        const regionFilter = document.getElementById('region-filter');
+        const statusRegionFilter = document.getElementById('status-region-filter');
+        
+        fileInput2024.addEventListener('change', (event) => handleFileUpload(event, '2024'));
+        fileInput2025.addEventListener('change', (event) => handleFileUpload(event, '2025'));
+        regionFilter.addEventListener('change', handleSubplotFilterChange);
+        statusRegionFilter.addEventListener('change', handleStatusChartFilterChange);
+
+
+        function handleFileUpload(event, year) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById(`filename-${year}`).textContent = file.name;
+            const label = document.getElementById(`label-${year}`);
+            label.classList.remove('unloaded');
+            label.classList.add('loaded');
+            label.innerHTML = `✔️ ${year} Data Loaded`;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    if (year === '2024') projectData2024 = results.data;
+                    if (year === '2025') projectData2025 = results.data;
+                    checkAndRenderDashboard();
+                }
+            });
+        }
+        
+        function checkAndRenderDashboard() {
+            if (projectData2024.length > 0 && projectData2025.length > 0) {
+                initialMessage.style.display = 'none';
+                dashboardContent.style.display = 'block';
+                populateRegionFilters();
+                renderAllCharts();
+            }
+        }
+        
+        function populateRegionFilters() {
+            const allRegions = [...new Set([...projectData2024.map(d => d.Region), ...projectData2025.map(d => d.Region)])].filter(Boolean).sort();
+            
+            regionFilter.innerHTML = `<option value="All">All Regions</option>`;
+            statusRegionFilter.innerHTML = `<option value="All">All Regions</option>`;
+
+            allRegions.forEach(region => {
+                const option1 = document.createElement('option');
+                option1.value = region;
+                option1.textContent = region;
+                regionFilter.appendChild(option1);
+
+                const option2 = document.createElement('option');
+                option2.value = region;
+                option2.textContent = region;
+                statusRegionFilter.appendChild(option2);
+            });
+        }
+
+        function handleSubplotFilterChange() {
+            createStatusSubplots(projectData2024, projectData2025, regionFilter.value);
+        }
+
+        function handleStatusChartFilterChange() {
+            createStatusComparisonChart(projectData2024, projectData2025, statusRegionFilter.value);
+        }
+
+        function renderAllCharts() {
+            Object.values(charts).forEach(chart => {
+                if(chart) chart.destroy();
+            });
+            charts = {};
+
+            createComparisonByRegionChart(projectData2024, projectData2025);
+            createStatusComparisonChart(projectData2024, projectData2025, 'All');
+            createStatusSubplots(projectData2024, projectData2025, 'All');
+        }
+
+        // Color Palettes
+        const color2024 = '#7c3aed';
+        const color2025 = '#10b981';
+        
+        // Common Datalabels config
+        const datalabelsConfig = {
+            anchor: 'end',
+            align: 'top',
+            formatter: (value) => value > 0 ? value : '',
+            color: '#4b5563',
+            font: {
+                weight: 'bold'
+            }
+        };
+
+        // Common Legend Config
+        const legendConfig = {
+            position: 'bottom',
+            labels: {
+                font: {
+                    size: 12
+                },
+                boxWidth: 20
+            }
+        };
+
+        // Charting Functions
+        function createComparisonByRegionChart(data2024, data2025) {
+            if (charts.comparison) charts.comparison.destroy();
+            const counts2024 = data2024.reduce((acc, row) => {
+                const region = row.Region || 'Unassigned';
+                acc[region] = (acc[region] || 0) + 1;
+                return acc;
+            }, {});
+             const counts2025 = data2025.reduce((acc, row) => {
+                const region = row.Region || 'Unassigned';
+                acc[region] = (acc[region] || 0) + 1;
+                return acc;
+            }, {});
+
+            const allRegions = [...new Set([...Object.keys(counts2024), ...Object.keys(counts2025)])];
+
+            const regionTotals = allRegions.map(region => ({
+                region: region,
+                total: (counts2024[region] || 0) + (counts2025[region] || 0)
+            }));
+            regionTotals.sort((a, b) => b.total - a.total);
+            const sortedRegions = regionTotals.map(item => item.region);
+
+            const dataset2024 = sortedRegions.map(region => counts2024[region] || 0);
+            const dataset2025 = sortedRegions.map(region => counts2025[region] || 0);
+            const maxValue = Math.max(...dataset2024, ...dataset2025);
+
+            const ctx = document.getElementById('comparisonByRegionChart').getContext('2d');
+            charts.comparison = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedRegions,
+                    datasets: [
+                        { label: '2024 Projects', data: dataset2024, backgroundColor: color2024 },
+                        { label: '2025 Projects', data: dataset2025, backgroundColor: color2025 }
+                    ]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: { 
+                        y: { 
+                            beginAtZero: true,
+                            max: maxValue > 0 ? Math.ceil(maxValue * 1.2) : 5
+                        } 
+                    },
+                    plugins: { 
+                        legend: legendConfig,
+                        datalabels: datalabelsConfig 
+                    }
+                }
+            });
+        }
+
+        function createStatusComparisonChart(data2024, data2025, selectedRegion = 'All') {
+            if (charts.statusComparison) charts.statusComparison.destroy();
+            const statusMap = { 'U': 'Under Construction', 'J': 'Just Announced', 'P': 'Planning', 'H': 'Hold' };
+            const statuses = Object.keys(statusMap);
+            
+            const filteredData2024 = selectedRegion === 'All' ? data2024 : data2024.filter(d => d.Region === selectedRegion);
+            const filteredData2025 = selectedRegion === 'All' ? data2025 : data2025.filter(d => d.Region === selectedRegion);
+
+            const counts2024 = statuses.map(status => filteredData2024.filter(d => d.Status === status).length);
+            const counts2025 = statuses.map(status => filteredData2025.filter(d => d.Status === status).length);
+            const maxValue = Math.max(...counts2024, ...counts2025);
+
+            const ctx = document.getElementById('statusComparisonChart').getContext('2d');
+            charts.statusComparison = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: statuses.map(s => statusMap[s]),
+                    datasets: [
+                        { label: '2024', data: counts2024, backgroundColor: color2024 },
+                        { label: '2025', data: counts2025, backgroundColor: color2025 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { stepSize: 1 },
+                            max: maxValue > 0 ? Math.ceil(maxValue * 1.2) : 5
+                        } 
+                    },
+                    plugins: { 
+                        legend: legendConfig,
+                        datalabels: datalabelsConfig
+                    }
+                }
+            });
+        }
+
+        function createStatusSubplots(data2024, data2025, selectedRegion = 'All') {
+            const container = document.getElementById('status-subplots-container');
+            container.innerHTML = ''; // Clear previous subplots
+            Object.keys(charts).forEach(key => {
+                if (key.startsWith('status_subplot_')) {
+                    if(charts[key]) charts[key].destroy();
+                    delete charts[key];
+                }
+            });
+            
+            const statusMap = { 'U': 'Under Construction', 'J': 'Just Announced', 'P': 'Planning', 'H': 'Hold' };
+            const statuses = Object.keys(statusMap);
+            
+            let regionsToDisplay;
+            if (selectedRegion === 'All') {
+                regionsToDisplay = [...new Set([...data2024.map(d => d.Region), ...data2025.map(d => d.Region)])].filter(Boolean);
+            } else {
+                regionsToDisplay = [selectedRegion];
+            }
+
+            statuses.forEach(status => {
+                const regionTotalsForStatus = regionsToDisplay.map(region => {
+                    const count2024 = data2024.filter(d => d.Status === status && d.Region === region).length;
+                    const count2025 = data2025.filter(d => d.Status === status && d.Region === region).length;
+                    return { region: region, total: count2024 + count2025 };
+                });
+                regionTotalsForStatus.sort((a, b) => b.total - a.total);
+                const sortedRegions = regionTotalsForStatus.map(item => item.region);
+
+                const subplotWrapper = document.createElement('div');
+                
+                const title = document.createElement('h3');
+                title.className = 'text-lg font-semibold text-center mb-2 text-gray-600';
+                title.textContent = statusMap[status];
+                
+                const canvasWrapper = document.createElement('div');
+                canvasWrapper.className = 'relative h-[400px]';
+
+                const canvas = document.createElement('canvas');
+                canvasWrapper.appendChild(canvas);
+                subplotWrapper.appendChild(title);
+                subplotWrapper.appendChild(canvasWrapper);
+                container.appendChild(subplotWrapper);
+
+                const counts2024 = sortedRegions.map(region => 
+                    data2024.filter(d => d.Status === status && d.Region === region).length
+                );
+                const counts2025 = sortedRegions.map(region => 
+                    data2025.filter(d => d.Status === status && d.Region === region).length
+                );
+                const maxValue = Math.max(...counts2024, ...counts2025);
+
+                charts[`status_subplot_${status}`] = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: sortedRegions,
+                        datasets: [
+                            { label: '2024', data: counts2024, backgroundColor: color2024 },
+                            { label: '2025', data: counts2025, backgroundColor: color2025 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { 
+                            y: { 
+                                beginAtZero: true, 
+                                ticks: { stepSize: 1 },
+                                max: maxValue > 0 ? Math.ceil(maxValue * 1.2) : 5
+                            } 
+                        },
+                        plugins: { 
+                            legend: legendConfig,
+                            datalabels: datalabelsConfig
+                        }
+                    }
+                });
+            });
+        }
+    </script>
+</body>
+</html>
