@@ -62,7 +62,7 @@
             <div class="chart-container">
                 <div class="flex flex-col sm:flex-row justify-between items-center mb-4">
                     <h2 class="text-xl font-semibold text-gray-700">Detailed View: Project Count by Status and Region</h2>
-                    <select id="region-filter" class="p-1 text-sm border rounded-md bg-white shadow-sm mt-4 sm:mt-0"></select>
+                    <select id="region-filter" class="p-1 text-sm border rounded-md bg-white shadow-sm mt-4 sm:mt-0" multiple size="4"></select>
                 </div>
                 <div id="status-subplots-container" class="grid grid-cols-1 lg:grid-cols-2 gap-8"></div>
             </div>
@@ -81,7 +81,10 @@
 
         fileInput2024.addEventListener('change', e => handleFileUpload(e, '2024'));
         fileInput2025.addEventListener('change', e => handleFileUpload(e, '2025'));
-        regionFilter.addEventListener('change', () => createStatusSubplots(regionFilter.value));
+        regionFilter.addEventListener('change', () => {
+            const selected = Array.from(regionFilter.selectedOptions).map(opt => opt.value);
+            createStatusSubplots(selected.length ? selected : ['All']);
+        });
         statusRegionFilter.addEventListener('change', () => createStatusComparisonChart(statusRegionFilter.value));
 
         function handleFileUpload(event, year) {
@@ -103,9 +106,12 @@
 
         function populateRegionFilters() {
             const regions = [...new Set([...projectData2024, ...projectData2025].map(d => d.Region))].filter(Boolean).sort();
-            regionFilter.innerHTML = '<option value="All">All Regions</option>';
+            regionFilter.innerHTML = '<option value="All" selected>All Regions</option>';
             statusRegionFilter.innerHTML = '<option value="All">All Regions</option>';
-            regions.forEach(r => { regionFilter.append(new Option(r, r)); statusRegionFilter.append(new Option(r, r)); });
+            regions.forEach(r => { 
+                regionFilter.append(new Option(r, r)); 
+                statusRegionFilter.append(new Option(r, r)); 
+            });
         }
 
         function renderAllCharts() {
@@ -222,10 +228,21 @@
             });
         }
 
-        function createStatusSubplots(region) {
+        function createStatusSubplots(selectedRegions) {
             const container = document.getElementById('status-subplots-container'); container.innerHTML = '';
             const map = { 'U':'Under Construction','J':'Just Announced','P':'Planning','H':'Hold' };
-            const regions = region==='All'? [...new Set([...projectData2024, ...projectData2025].map(d=>d.Region))].filter(Boolean) : [region];
+            let regions;
+            if (Array.isArray(selectedRegions)) {
+                if (selectedRegions.includes('All')) {
+                    regions = [...new Set([...projectData2024, ...projectData2025].map(d=>d.Region))].filter(Boolean);
+                } else {
+                    regions = selectedRegions;
+                }
+            } else {
+                regions = selectedRegions === 'All'
+                    ? [...new Set([...projectData2024, ...projectData2025].map(d=>d.Region))].filter(Boolean)
+                    : [selectedRegions];
+            }
             Object.keys(map).forEach(s => {
                 const wrapper = document.createElement('div');
                 const title = document.createElement('h3'); title.textContent = map[s]; title.className = 'text-lg font-semibold text-center mb-2 text-gray-600';
